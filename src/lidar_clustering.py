@@ -1,4 +1,5 @@
 import sys
+sys.path.append('/opt/homebrew/lib/python3.12/site-packages')  # 'PyLidar3'가 설치된 경로
 import time
 import math
 import PyQt5.QtWidgets as QtWidgets
@@ -54,12 +55,12 @@ class LidarWidget(QtWidgets.QWidget):
             x_coords, y_coords = self.remove_noise(x_coords, y_coords)
             self.canvas.ax.clear()
             self.update_map(x_coords, y_coords)
-            self.plot_map()
-            self.canvas.ax.set_xlim(-10000, 10000)
-            self.canvas.ax.set_ylim(-10000, 10000)
-            self.canvas.ax.set_xlabel('X 좌표 (mm)')
-            self.canvas.ax.set_ylabel('Y 좌표 (mm)')
-            self.canvas.ax.set_title('LiDAR 실시간 맵')
+            self.plot_clusters(x_coords, y_coords)
+            self.canvas.ax.set_xlim(-750, 750)
+            self.canvas.ax.set_ylim(-750, 750)
+            self.canvas.ax.set_xlabel('X(cm)')
+            self.canvas.ax.set_ylabel('Y(cm)')
+            self.canvas.ax.set_title('Clustering')
             self.canvas.ax.plot(0, 0, 'ro', markersize=10)  # 원점을 크게 표시
             self.canvas.draw()
         except StopIteration:
@@ -73,15 +74,15 @@ class LidarWidget(QtWidgets.QWidget):
         for angle, distance in scan_data.items():
             if distance > 0:  # 유효한 거리 데이터만 처리
                 angle_radians = math.radians(angle)
-                y = distance * math.cos(angle_radians)
-                x = distance * math.sin(angle_radians)
+                y = (distance * math.cos(angle_radians)) / 10  # mm에서 cm로 변환
+                x = (distance * math.sin(angle_radians)) / 10  # mm에서 cm로 변환
                 x_coords.append(x)
                 y_coords.append(y)
         return x_coords, y_coords
 
     def remove_noise(self, x_coords, y_coords):
         coords = np.column_stack((x_coords, y_coords))
-        clustering = DBSCAN(eps=100, min_samples=5).fit(coords)
+        clustering = DBSCAN(eps=10, min_samples=5).fit(coords)  # 단위 변경에 따라 eps도 조정
         labels = clustering.labels_
 
         # 노이즈가 아닌 데이터만 필터링
@@ -93,11 +94,23 @@ class LidarWidget(QtWidgets.QWidget):
         for x, y in zip(x_coords, y_coords):
             self.map_data.append((x, y))
 
-    def plot_map(self):
-        # 맵 데이터를 작은 점으로 시각화
-        if self.map_data:
-            map_coords = np.array(self.map_data)
-            self.canvas.ax.plot(map_coords[:, 0], map_coords[:, 1], 'k.', markersize=2)  # 작은 점으로 시각화
+    def plot_clusters(self, x_coords, y_coords):
+        coords = np.column_stack((x_coords, y_coords))
+        clustering = DBSCAN(eps=10, min_samples=5).fit(coords)  # 단위 변경에 따라 eps도 조정
+        labels = clustering.labels_
+        
+        unique_labels = set(labels)
+        colors = plt.cm.Spectral(np.linspace(0, 1, len(unique_labels)))
+        
+        for k, col in zip(unique_labels, colors):
+            if k == -1:
+                # 노이즈 포인트는 검은색으로 표시
+                col = 'k'
+
+            class_member_mask = (labels == k)
+            xy = coords[class_member_mask]
+
+            self.canvas.ax.plot(xy[:, 0], xy[:, 1], 'o', markerfacecolor=col, markeredgecolor='k', markersize=6)
 
 def main():
     port = input("LiDAR가 연결된 포트 이름을 입력하세요: ")  # 예: COM3 또는 /dev/ttyUSB0
